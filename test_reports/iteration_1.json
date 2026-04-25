@@ -1,0 +1,36 @@
+{
+  "summary": "Backend-only testing of Niva Novus API. 32/33 tests passed (97%). All auth (OTP+email), RBAC, devices, rooms, scenes, jobs, tickets, leads, customers, inventory, invoices, AMC, analytics, energy, chat and Stripe checkout session creation work correctly. Only failure: GET /api/payments/checkout/status/{session_id} returns 500 because Stripe rejects retrieval of the freshly created session ID (likely an Emergent test-wrapper limitation), and the endpoint lacks try/except.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/payments/checkout/status/{session_id}", "issue": "Returns 500 InternalServerError. Stripe raises 'No such checkout.session' for sessions created via STRIPE_API_KEY=sk_test_emergent. CheckoutError exception is not handled in server.py:518. Should be wrapped in try/except and return 4xx with payment_status from local payment_transactions doc as fallback.", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Wrap StripeCheckout.get_checkout_status() call in try/except in /api/payments/checkout/status endpoint. On CheckoutError, fall back to reading local payment_transactions collection by session_id and return its status/payment_status fields (HTTP 200) instead of raising 500. Also log the underlying error.",
+    "Verify whether sk_test_emergent (Emergent test wrapper) actually supports session retrieval. If not, the local DB fallback is mandatory for the billing return-flow to work."
+  ],
+  "critical_code_review_comments": [
+    "server.py:259 - The list comprehension `[p['id'] async for p in db.projects.find(...)]` inside an inline dict for non-admin users runs even for admin (short-circuited by ternary, but readability is poor). Consider extracting to helper.",
+    "server.py:289 update_job has no role guard - any authenticated user (including customer) can PATCH any job. Should be restricted to technician/admin or scoped by ownership.",
+    "server.py:316 update_ticket has no role guard - customers can call PATCH /api/tickets/{tid} for tickets that are not theirs. Should restrict to admin or owner.",
+    "server.py:283 GET /api/jobs/{id} has no scoping - any authenticated user can fetch any job by id (information leak).",
+    "server.py:258 energy_summary - power consumption calculation uses 0.012 magic constant; document units (W * 0.012 -> kWh assumption is unclear).",
+    "server.py:543 stripe_webhook - logger is referenced before being initialized (line 583). NameError will occur if exception path hits before logger assignment at module load (works because it's lazy at call time, but fragile).",
+    "server.py:518 - Missing try/except around external Stripe API call (root cause of failing test).",
+    "JWT_SECRET fallback default 'niva-secret' in code; .env has explicit value but defensive default in code reduces secret hygiene."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "97% (32/33)", "frontend": "not tested"},
+  "test_credentials": "admin@nivanovus.com/admin123, tech@nivanovus.com/tech123, +919999900001/123456 - all working",
+  "seed_data_creation": "Used existing seeded data (auto-seed on startup). Test created TEST_-prefixed tickets and chat messages; not cleaned up.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend is mostly green. Re-run /app/backend/tests/backend_test.py after main agent fixes /api/payments/checkout/status (add try/except + DB fallback). Note: test_checkout_session and test_create_ticket emit a benign PytestReturnNotNoneWarning (return value used by other tests) - not a failure.",
+  "rca_of_the_issue": "Root cause: server.py:514-518 directly awaits sc.get_checkout_status(session_id) with no exception handling. emergentintegrations.payments.stripe.checkout.get_checkout_status calls stripe.checkout.Session.retrieve which raises stripe._error.InvalidRequestError ('No such checkout.session: cs_test_...') when querying a session that was created via the Emergent test key wrapper. The library re-raises as CheckoutError, which propagates to FastAPI as a 500. Reproduction: POST /api/payments/checkout/session with package_id=amc_premium -> get session_id -> immediately GET /api/payments/checkout/status/{session_id} -> 500. Mitigation: try/except CheckoutError, return cached payment_transactions doc data from MongoDB instead."
+}
