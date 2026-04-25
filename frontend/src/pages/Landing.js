@@ -1,7 +1,13 @@
 import { Link } from "react-router-dom";
+import { useState } from "react";
 import Logo from "@/components/Logo";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Home, Shield, Zap, Sparkles, Smartphone, Cpu } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { api } from "@/lib/api";
+import { toast } from "sonner";
+import { ArrowRight, Home, Shield, Zap, Sparkles, Smartphone, Cpu, Mail, Phone, MapPin } from "lucide-react";
 
 const features = [
   { icon: Home, title: "Whole-home control", desc: "Lights, AC, curtains, geyser — every room, one tap." },
@@ -101,7 +107,22 @@ export default function Landing() {
       </section>
 
       <section id="contact" className="px-6 md:px-10 max-w-7xl mx-auto py-20">
-        <div className="surface p-10 md:p-14 text-center">
+        <div className="grid lg:grid-cols-2 gap-10 items-stretch">
+          <div className="surface p-8 md:p-12 flex flex-col justify-between">
+            <div>
+              <div className="label-cap text-gold">Get in touch</div>
+              <h2 className="font-serif text-4xl md:text-5xl mt-3 mb-5">Let's design<br/>your home.</h2>
+              <p className="text-white/60 max-w-md mb-10">Drop us a line. Our concierge team will reach out within 24 hours with a tailored consultation.</p>
+            </div>
+            <div className="space-y-4 text-white/70 text-sm">
+              <div className="flex items-center gap-3"><Phone className="w-4 h-4 text-gold"/>+91 99999 00000</div>
+              <div className="flex items-center gap-3"><Mail className="w-4 h-4 text-gold"/>concierge@nivanovus.com</div>
+              <div className="flex items-center gap-3"><MapPin className="w-4 h-4 text-gold"/>BKC, Mumbai · Bengaluru · Delhi NCR</div>
+            </div>
+          </div>
+          <EnquiryForm />
+        </div>
+        <div className="surface p-10 md:p-14 text-center mt-10">
           <div className="label-cap text-gold">Investor demo</div>
           <h2 className="font-serif text-4xl md:text-5xl mt-3 mb-6">Three apps. One platform.</h2>
           <p className="text-white/60 max-w-2xl mx-auto mb-8">Customer mobile-first PWA, technician installer panel, and an enterprise-grade admin CRM — all live, all wired up.</p>
@@ -127,5 +148,67 @@ function Stat({ n, l }) {
       <div className="font-serif text-3xl text-gold">{n}</div>
       <div className="label-cap mt-1">{l}</div>
     </div>
+  );
+}
+
+function EnquiryForm() {
+  const [form, setForm] = useState({ name: "", phone: "", email: "", message: "" });
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!form.name.trim() || !form.phone.trim()) { toast.error("Name and phone are required"); return; }
+    setBusy(true);
+    try {
+      await api.post("/leads/enquiry", form);
+      toast.success("Enquiry received — we'll be in touch shortly");
+      setDone(true);
+      setForm({ name: "", phone: "", email: "", message: "" });
+    } catch {
+      toast.error("Could not submit. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (done) {
+    return (
+      <div className="surface p-8 md:p-12 flex flex-col items-center justify-center text-center" data-testid="enquiry-success">
+        <div className="w-16 h-16 rounded-full bg-gold/15 grid place-items-center mb-5"><Sparkles className="w-7 h-7 text-gold"/></div>
+        <h3 className="font-serif text-3xl mb-2">Thank you</h3>
+        <p className="text-white/60 max-w-sm">Your enquiry has been received. A Niva Novus consultant will reach out within 24 hours.</p>
+        <Button data-testid="enquiry-another-btn" variant="outline" onClick={()=>setDone(false)} className="rounded-full border-white/15 mt-8">Send another</Button>
+      </div>
+    );
+  }
+  return (
+    <form onSubmit={submit} className="surface p-8 md:p-10 space-y-4" data-testid="enquiry-form">
+      <div>
+        <div className="label-cap text-gold mb-1">Enquiry</div>
+        <h3 className="font-serif text-2xl">Request a consultation</h3>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-4">
+        <div>
+          <Label className="label-cap">Full name *</Label>
+          <Input data-testid="enquiry-name" value={form.name} onChange={set("name")} placeholder="Your name" className="mt-2 bg-[#151C33] border-white/5 h-11 rounded-xl"/>
+        </div>
+        <div>
+          <Label className="label-cap">Phone *</Label>
+          <Input data-testid="enquiry-phone" value={form.phone} onChange={set("phone")} placeholder="+91 ..." className="mt-2 bg-[#151C33] border-white/5 h-11 rounded-xl"/>
+        </div>
+      </div>
+      <div>
+        <Label className="label-cap">Email</Label>
+        <Input data-testid="enquiry-email" value={form.email} onChange={set("email")} placeholder="you@email.com" className="mt-2 bg-[#151C33] border-white/5 h-11 rounded-xl"/>
+      </div>
+      <div>
+        <Label className="label-cap">Tell us about your home</Label>
+        <Textarea data-testid="enquiry-message" value={form.message} onChange={set("message")} placeholder="3BHK in Mumbai — interested in lighting, AC & security..." className="mt-2 bg-[#151C33] border-white/5 rounded-xl min-h-[120px]"/>
+      </div>
+      <Button data-testid="enquiry-submit" type="submit" disabled={busy} className="w-full rounded-full bg-gold hover:bg-[#F3E5AB] text-[#050A1F] font-semibold h-12">
+        {busy ? "Sending..." : "Submit enquiry"} <ArrowRight className="ml-2 w-4 h-4"/>
+      </Button>
+      <p className="text-[11px] text-white/40 text-center">By submitting, you agree to our privacy policy. No spam, ever.</p>
+    </form>
   );
 }

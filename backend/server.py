@@ -349,6 +349,27 @@ async def add_lead(payload: Dict[str, Any], user=Depends(require_role("admin")))
     l.pop("_id", None)
     return l
 
+@api_router.post("/leads/enquiry")
+async def public_enquiry(payload: Dict[str, Any]):
+    name = (payload.get("name") or "").strip()
+    phone = (payload.get("phone") or "").strip()
+    if not name or not phone:
+        raise HTTPException(400, "Name and phone are required")
+    lead = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "phone": phone,
+        "email": (payload.get("email") or "").strip(),
+        "interest": (payload.get("message") or payload.get("interest") or "Website enquiry"),
+        "source": "Website",
+        "value": 0,
+        "status": "new",
+        "created_at": now_iso(),
+    }
+    await db.leads.insert_one(dict(lead))
+    lead.pop("_id", None)
+    return {"success": True, "lead_id": lead["id"]}
+
 @api_router.patch("/leads/{lid}")
 async def upd_lead(lid: str, payload: Dict[str, Any], user=Depends(require_role("admin"))):
     await db.leads.update_one({"id": lid}, {"$set": payload})
