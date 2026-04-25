@@ -284,14 +284,24 @@ async def get_job(job_id: str, user=Depends(get_current_user)):
     j = await db.jobs.find_one({"id": job_id}, {"_id": 0})
     if not j:
         raise HTTPException(404, "Job not found")
+    if user["role"] == "technician" and j.get("technician_id") != user["id"]:
+        raise HTTPException(403, "Not your job")
+    if user["role"] == "customer" and j.get("customer_id") != user["id"]:
+        raise HTTPException(403, "Not your job")
     return j
 
 @api_router.patch("/jobs/{job_id}")
 async def update_job(job_id: str, payload: Dict[str, Any], user=Depends(get_current_user)):
+    if user["role"] not in ("technician", "admin"):
+        raise HTTPException(403, "Forbidden")
+    j = await db.jobs.find_one({"id": job_id}, {"_id": 0})
+    if not j:
+        raise HTTPException(404, "Job not found")
+    if user["role"] == "technician" and j.get("technician_id") != user["id"]:
+        raise HTTPException(403, "Not your job")
     payload["updated_at"] = now_iso()
     await db.jobs.update_one({"id": job_id}, {"$set": payload})
-    j = await db.jobs.find_one({"id": job_id}, {"_id": 0})
-    return j
+    return await db.jobs.find_one({"id": job_id}, {"_id": 0})
 
 @api_router.post("/jobs")
 async def create_job(payload: Dict[str, Any], user=Depends(require_role("admin"))):
@@ -315,6 +325,11 @@ async def create_ticket(payload: Dict[str, Any], user=Depends(get_current_user))
 
 @api_router.patch("/tickets/{tid}")
 async def update_ticket(tid: str, payload: Dict[str, Any], user=Depends(get_current_user)):
+    t = await db.tickets.find_one({"id": tid}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    if user["role"] != "admin" and t.get("user_id") != user["id"]:
+        raise HTTPException(403, "Not your ticket")
     await db.tickets.update_one({"id": tid}, {"$set": {**payload, "updated_at": now_iso()}})
     return await db.tickets.find_one({"id": tid}, {"_id": 0})
 
@@ -515,9 +530,16 @@ async def checkout_status(session_id: str, request: Request, user=Depends(get_cu
     api_key = os.environ.get("STRIPE_API_KEY")
     host_url = str(request.base_url).rstrip("/")
     sc = StripeCheckout(api_key=api_key, webhook_url=f"{host_url}/api/webhook/stripe")
-    status_resp = await sc.get_checkout_status(session_id)
 
     txn = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+    try:
+        status_resp = await sc.get_checkout_status(session_id)
+    except Exception as e:
+        logger.warning(f"Stripe status retrieval failed, using local cache: {e}")
+        if txn:
+            return {"status": txn.get("status", "pending"), "payment_status": txn.get("payment_status", "pending"), "amount_total": int(float(txn.get("amount", 0)) * 100), "currency": txn.get("currency", "usd")}
+        raise HTTPException(404, "Session not found")
+
     if txn and txn.get("payment_status") != "paid" and status_resp.payment_status == "paid":
         await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"payment_status": "paid", "status": "completed", "completed_at": now_iso()}})
         # Mark invoice paid if invoice
