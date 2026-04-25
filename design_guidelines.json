@@ -1,0 +1,135 @@
+{
+  "theme": "dark",
+  "archetype": "5 (Jewel & Luxury)",
+  "brand": {
+    "name": "Niva Novus",
+    "tone": "Cinematic, moody, expensive, effortless",
+    "domain": "Premium Smart Home Automation SaaS"
+  },
+  "typography": {
+    "fonts": {
+      "headings": "Playfair Display",
+      "body": "Outfit",
+      "mono": "JetBrains Mono"
+    },
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tight font-light",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight",
+      "h3": "text-xl sm:text-2xl",
+      "body": "text-base leading-relaxed",
+      "labels": "text-xs tracking-[0.2em] uppercase font-semibold"
+    }
+  },
+  "colors": {
+    "background": {
+      "main": "#050A1F",
+      "surface": "#0B132B",
+      "surface_elevated": "#151C33",
+      "surface_highlight": "#212942"
+    },
+    "primary": {
+      "DEFAULT": "#D4AF37",
+      "light": "#F3E5AB",
+      "dark": "#AA8822"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "#8A95A5",
+      "accent": "#E8D8A0"
+    },
+    "status": {
+      "success": "#22C55E",
+      "warning": "#F59E0B",
+      "error": "#EF4444",
+      "offline": "#4B5563"
+    },
+    "borders": {
+      "subtle": "rgba(255, 255, 255, 0.05)",
+      "medium": "rgba(255, 255, 255, 0.1)",
+      "accent": "rgba(212, 175, 55, 0.3)"
+    }
+  },
+  "layout_and_spacing": {
+    "container_padding": "p-6 md:p-8 lg:p-12",
+    "widget_gap": "gap-4 md:gap-6",
+    "border_radius": {
+      "cards": "rounded-2xl",
+      "buttons": "rounded-full",
+      "inputs": "rounded-xl"
+    },
+    "grid_modes": {
+      "dashboard": "grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6",
+      "bento_marketing": "grid grid-cols-1 md:grid-cols-8 lg:grid-cols-12 gap-8"
+    }
+  },
+  "surfaces_and_effects": {
+    "glassmorphism": {
+      "header": "backdrop-blur-xl bg-[#050A1F]/70 border-b border-white/5",
+      "modals": "backdrop-blur-2xl bg-[#0B132B]/80 border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
+    },
+    "cards": {
+      "default": "bg-[#0B132B] border border-white/5 shadow-none",
+      "hover": "hover:-translate-y-1 hover:border-[#D4AF37]/30 transition-all duration-300",
+      "active_device": "bg-[#151C33] border-[#D4AF37] drop-shadow-[0_0_15px_rgba(212,175,55,0.15)]"
+    }
+  },
+  "component_strategies": {
+    "mobile_customer_app": {
+      "navigation": "Bottom floating tab bar with glassmorphism.",
+      "device_cards": "Large, tappable rounded-2xl cards. Use subtle inner glow when a device is 'ON'. No heavy drop shadows.",
+      "charts": "Recharts with monotone gold lines and dark gradient area fills.",
+      "scenes": "Horizontal scrolling bento cards for 'Good Morning', 'Movie', etc., with background abstract imagery."
+    },
+    "admin_dashboard": {
+      "layout": "Control Room Layout. Strict grid hierarchy. Deep blacks (#050A1F) with #151C33 cards.",
+      "data_tables": "Shadcn tables. Border-collapse, subtle bottom borders. Row hover effect bg-white/5.",
+      "typography": "High-contrast bold headers with muted body text for legibility.",
+      "navigation": "Collapsible sidebar, clean semantic grouping."
+    },
+    "technician_app": {
+      "layout": "Task-focused linear lists and map views.",
+      "actions": "Large tap targets (min 48px height) for checklists and photo uploads.",
+      "forms": "Shadcn Forms, Input, Select with rounded-xl and dark backgrounds."
+    }
+  },
+  "interactions_and_motion": {
+    "hover_states": "Always use hover:text-white hover:bg-white/5 on interactive muted elements.",
+    "transitions": "transition-all duration-300 ease-out",
+    "page_load": "Staggered fade-up animations (Framer Motion) for lists and grids."
+  },
+  "accessibility": {
+    "focus": "focus:ring-2 focus:ring-[#D4AF37] focus:outline-none",
+    "contrast": "Ensure pure white text on deep blue backgrounds for WCAG AA compliance.",
+    "testing_attributes": "All interactive elements MUST have role-based data-testid attributes (e.g., data-testid='room-light-toggle')."
+  },
+  "media": {
+    "images": {
+      "logo_placeholder": {
+        "url": "https://images.unsplash.com/photo-1618243329711-359c196ffb38?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzR8MHwxfHNlYXJjaHwxfHxsZXR0ZXIlMjBOJTIwbWluaW1hbCUyMGxvZ298ZW58MHx8fHwxNzc3MTQ3OTkyfDA&ixlib=rb-4.1.0&q=85",
+        "description": "Minimal N logo placeholder"
+      },
+      "hero_living_room": {
+        "url": "https://images.pexels.com/photos/13722886/pexels-photo-13722886.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Sleek modern living room featuring dark tones and elegant furnishings with ambient lighting."
+      },
+      "abstract_background": {
+        "url": "https://images.pexels.com/photos/12306417/pexels-photo-12306417.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Elegant and smooth dark blue wave pattern creating a silky abstract texture."
+      },
+      "modern_architecture": {
+        "url": "https://images.unsplash.com/photo-1774437290569-4c7061cae2c9?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODF8MHwxfHNlYXJjaHwzfHxzbWFydCUyMGhvbWUlMjBtb2Rlcm4lMjBhcmNoaXRlY3R1cmV8ZW58MHx8fHwxNzc3MTQ3OTc3fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Modern interior with bonsai tree and large windows"
+      }
+    },
+    "icons": "lucide-react"
+  },
+  "instructions_to_main_agent": [
+    "Read this entire JSON to understand the design system.",
+    "Apply Archetype 5 (Jewel & Luxury) to all views: Customer App, Admin Dashboard, and Technician App.",
+    "Use pure HTML + Tailwind for marketing/landing pages to break rigid grids, but use customized Shadcn/UI for Admin and App dashboards.",
+    "Implement the mobile Customer App as a PWA layout (max-width container on desktop, full screen on mobile) with a bottom navigation bar.",
+    "Never use generic Inter font for headings; stick to Playfair Display for 'Niva' and high-impact headers, and Outfit for the rest.",
+    "Never use pure black (#000000). Use the provided background colors (#050A1F, #0B132B).",
+    "Replace traditional drop-shadows with inner glows and subtle 1px translucent borders for a premium feel."
+  ]
+}
