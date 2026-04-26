@@ -8,8 +8,13 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
+# Fixed salt for idempotent seed hashes — same password always produces same hash
+# Demo data only; production users hash with fresh salts via the auth flow
+SEED_SALT = b"$2b$12$tmsqirjIAHo94VnBix93RO"
+
+
 def hp(pw):
-    return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
+    return bcrypt.hashpw(pw.encode(), SEED_SALT).decode()
 
 
 async def seed_all(db):

@@ -256,7 +256,12 @@ async def del_schedule(sid: str, user=Depends(get_current_user)):
 # ---------- Energy / Analytics ----------
 @api_router.get("/energy/summary")
 async def energy_summary(user=Depends(get_current_user)):
-    devices = await db.devices.find({} if user["role"] == "admin" else {"project_id": {"$in": [p["id"] async for p in db.projects.find({"user_id": user["id"]}, {"id": 1, "_id": 0})]}}, {"_id": 0}).to_list(500)
+    if user["role"] == "admin":
+        device_filter = {}
+    else:
+        project_ids = [p["id"] async for p in db.projects.find({"user_id": user["id"]}, {"id": 1, "_id": 0})]
+        device_filter = {"project_id": {"$in": project_ids}}
+    devices = await db.devices.find(device_filter, {"_id": 0}).to_list(500)
     today_kwh = round(sum(d.get("power_w", 0) for d in devices if d.get("state", {}).get("on")) * 0.012, 2)
     week = [{"day": d, "kwh": round(8 + i * 1.5 + (i % 3) * 2.1, 1)} for i, d in enumerate(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])]
     by_room = {}
