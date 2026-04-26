@@ -76,7 +76,7 @@ function Dashboard({ user }) {
     setRooms(r.data); setDevices(d.data); setScenes(s.data);
     if (r.data.length && !activeRoom) setActiveRoom(r.data[0].id);
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [[load]]);
 
   const filtered = activeRoom ? devices.filter(d => d.room_id === activeRoom) : devices;
   const onlineCount = devices.filter(d => d.online).length;
@@ -325,7 +325,7 @@ function Billing() {
       poll(sid, 0);
       window.history.replaceState({}, "", "/app/billing");
     }
-  }, []);
+  }, [poll]);
 
   const poll = async (sid, attempts) => {
     if (attempts >= 8) return;
