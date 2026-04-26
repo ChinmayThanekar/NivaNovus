@@ -80,7 +80,7 @@ function JobDetail() {
   const [report, setReport] = useState("");
 
   const load = () => api.get(`/jobs/${id}`).then(r=>setJob(r.data));
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => { load(); }, [load]);
 
   if (!job) return <div className="px-5 pt-6 text-white/50">Loading...</div>;
 
