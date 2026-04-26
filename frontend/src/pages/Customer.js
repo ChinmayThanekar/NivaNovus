@@ -71,12 +71,11 @@ function Dashboard({ user }) {
   const [scenes, setScenes] = useState([]);
   const [activeRoom, setActiveRoom] = useState(null);
 
-  const load = async () => {
-    const [r, d, s] = await Promise.all([api.get("/rooms"), api.get("/devices"), api.get("/scenes")]);
-    setRooms(r.data); setDevices(d.data); setScenes(s.data);
-    if (r.data.length && !activeRoom) setActiveRoom(r.data[0].id);
-  };
-  useEffect(() => { load(); }, []);
+  const load = useCallback(async () => {
+  const [r, d, s] = await Promise.all([api.get("/rooms"), api.get("/devices"), api.get("/scenes")]);
+  setRooms(r.data); setDevices(d.data); setScenes(s.data);
+  if (r.data.length && !activeRoom) setActiveRoom(r.data[0].id);}, [activeRoom]);
+  useEffect(() => { load(); }, [load]);
 
   const filtered = activeRoom ? devices.filter(d => d.room_id === activeRoom) : devices;
   const onlineCount = devices.filter(d => d.online).length;
@@ -328,14 +327,13 @@ function Billing() {
   }, [poll]);
 
   const poll = useCallback(async (sid, attempts) => {
-    if (attempts >= 8) return;
-    try {
-      const r = await api.get(`/payments/checkout/status/${sid}`);
-      if (r.data.payment_status === "paid") { toast.success("Payment successful!"); load(); return; }
-      if (r.data.status === "expired") { toast.error("Payment expired"); return; }
-      setTimeout(()=>poll(sid, attempts+1), 2000);
-    } catch { setTimeout(()=>poll(sid, attempts+1), 2000); }
-  }, [poll]);
+  if (attempts >= 8) return;
+  try {
+    const r = await api.get(`/payments/checkout/status/${sid}`);
+    if (r.data.payment_status === "paid") { toast.success("Payment successful!"); load(); return; }
+    if (r.data.status === "expired") { toast.error("Payment expired"); return; }
+    setTimeout(()=>poll(sid, attempts+1), 2000);
+  } catch { setTimeout(()=>poll(sid, attempts+1), 2000); }}, []); // Empty deps - poll is self-referential
 
   const checkout = async (body) => {
     setBusy(true);
