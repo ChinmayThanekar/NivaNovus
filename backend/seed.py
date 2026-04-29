@@ -201,3 +201,17 @@ async def seed_all(db):
 
     # Sample chat
     await db.chat_messages.insert_one({"id": str(uuid.uuid4()), "thread_id": cust_id, "sender_id": cust_id, "sender_role": "customer", "user_name": "Priya Iyer", "content": "Hi, my AC keeps switching off. Can you help?", "created_at": now_iso()})
+
+
+# backend/seed.py - Add at bottom
+if __name__ == "__main__":
+    import asyncio
+    from motor.motor_asyncio import AsyncIOMotorClient
+    
+    async def run_seed():
+        client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+        db = client[os.environ["DB_NAME"]]
+        await seed_all(db)
+        print("Seeding complete!")
+    
+    asyncio.run(run_seed())
