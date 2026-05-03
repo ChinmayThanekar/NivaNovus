@@ -27,8 +27,14 @@ mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 DB_NAME = os.environ.get("DB_NAME", "nivanovus")
 
-mongo_client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=2000)
+mongo_client = AsyncIOMotorClient(mongo_url,
+    serverSelectionTimeoutMS=10000,
+    connectTimeoutMS=10000,
+    socketTimeoutMS=10000,
+    maxPoolSize=50,
+)
 db = mongo_client[DB_NAME]
+    
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "niva-secret")
 JWT_ALGO = "HS256"
@@ -798,7 +804,7 @@ async def ws_endpoint(ws: WebSocket):
 async def _startup():
     global db
     try:
-        await asyncio.wait_for(db.command("ping"), timeout=2.0)
+        await asyncio.wait_for(db.command("ping"), timeout=10.0)
         app.state.db_ok = True
         app.state.db_mode = "mongo"
     except Exception as e:
