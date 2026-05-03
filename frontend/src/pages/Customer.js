@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Routes, Route, NavLink, useNavigate, Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell } from "recharts";
-import { Home, Lightbulb, Wind, Snowflake, Lock, Camera, Bell, Zap, Sparkles, LogOut, Settings, MessageCircle, Calendar, CreditCard, Wrench, Sun, Moon, Film, Shield, Plug, Tv, Flame, Droplets, ArrowRight, Plus } from "lucide-react";
+import { Home, Lightbulb, Wind, Snowflake, Lock, Camera, Bell, Zap, Sparkles, LogOut, Settings, MessageCircle, Calendar, CreditCard, Wrench, Sun, Moon, Film, Shield, Plug, Tv, Flame, Droplets, ArrowDown, Plus } from "lucide-react";
 
 const iconFor = (type) => ({ light: Lightbulb, fan: Wind, ac: Snowflake, lock: Lock, cctv: Camera, doorbell: Bell, plug: Plug, curtain: Tv, geyser: Flame, smoke: Flame, gas: Droplets }[type] || Plug);
 const sceneIcon = (n) => ({ "Good Morning": Sun, "Movie Mode": Film, "Sleep Mode": Moon, "Away Mode": Shield }[n] || Sparkles);
@@ -71,12 +71,11 @@ function Dashboard({ user }) {
   const [scenes, setScenes] = useState([]);
   const [activeRoom, setActiveRoom] = useState(null);
 
-  const load = async () => {
-    const [r, d, s] = await Promise.all([api.get("/rooms"), api.get("/devices"), api.get("/scenes")]);
-    setRooms(r.data); setDevices(d.data); setScenes(s.data);
-    if (r.data.length && !activeRoom) setActiveRoom(r.data[0].id);
-  };
-  useEffect(() => { load(); }, []);
+  const load = useCallback(async () => {
+  const [r, d, s] = await Promise.all([api.get("/rooms"), api.get("/devices"), api.get("/scenes")]);
+  setRooms(r.data); setDevices(d.data); setScenes(s.data);
+  if (r.data.length && !activeRoom) setActiveRoom(r.data[0].id);}, [activeRoom]);
+  useEffect(() => { load(); }, [load]);
 
   const filtered = activeRoom ? devices.filter(d => d.room_id === activeRoom) : devices;
   const onlineCount = devices.filter(d => d.online).length;
@@ -121,7 +120,7 @@ function Dashboard({ user }) {
           {scenes.slice(0,4).map(s => {
             const Ic = sceneIcon(s.name);
             return (
-              <button key={s.id} data-testid={`scene-${s.name.replace(/\s/g,'-').toLowerCase()}`} onClick={()=>runScene(s)} className="min-w-[140px] bg-[#0B132B] border border-white/5 rounded-2xl p-4 text-left hover-lift">
+              <button key={s.id} data-testid={`scene-${s.name.replace(/\s/g,'-').toLowerCase()}`} onClick={()=>runScene(s)} className="min-w-[140px] bg-[#0B132B] border border-white/5 rounded-2xl p-4 text-left hover:border-white/10 transition">
                 <div className="w-10 h-10 rounded-xl bg-gold/10 grid place-items-center mb-3">
                   <Ic className="w-5 h-5 text-gold" />
                 </div>
@@ -187,7 +186,7 @@ function DeviceCard({ device, onCommand }) {
         </div>
       </div>
       {isOn && device.type === "light" && (
-        <div className="mt-3"><Slider data-testid={`brightness-${device.id}`} value={[device.state?.brightness ?? 70]} max={100} step={5} onValueChange={(v)=>onCommand(device.id, { brightness: v[0] })}/></div>
+        <div className="mt-3"><Slider data-testid={`brightness-${device.id}`} value={[device.state?.brightness ?? 70]} max={100} step={5} onValueChange={(v)=>onCommand(device.id, { brightness: v[0] })} /></div>
       )}
       {isOn && device.type === "ac" && (
         <div className="mt-3 flex items-center justify-between text-xs">
@@ -293,45 +292,16 @@ function Alerts() {
 }
 
 function Profile({ user, logout }) {
-  const { updateMe } = useAuth();
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState(user?.name || "");
-  const [email, setEmail] = useState(user?.email || "");
-  const [busy, setBusy] = useState(false);
-  const save = async () => {
-    if (!name.trim()) { toast.error("Name is required"); return; }
-    setBusy(true);
-    try { await updateMe({ name, email }); toast.success("Profile updated"); setOpen(false); }
-    catch { toast.error("Update failed"); } finally { setBusy(false); }
-  };
   return (
     <div className="px-5 pt-4 space-y-4 fade-up">
       <h1 className="font-serif text-3xl">My Account</h1>
       <Card className="bg-[#0B132B] border-white/5 p-5 rounded-2xl">
-        <div className="flex justify-between items-start gap-3">
-          <div>
-            <div className="font-serif text-2xl">{user?.name}</div>
-            <div className="text-sm text-white/50">{user?.email} · {user?.phone}</div>
-          </div>
-          <Dialog open={open} onOpenChange={(v)=>{setOpen(v); if (v) { setName(user?.name||""); setEmail(user?.email||""); }}}>
-            <DialogTrigger asChild>
-              <Button data-testid="profile-edit-btn" size="sm" variant="outline" className="rounded-full border-white/15">Edit</Button>
-            </DialogTrigger>
-            <DialogContent className="bg-[#0B132B] border-white/10">
-              <DialogHeader><DialogTitle className="font-serif text-2xl">Edit profile</DialogTitle></DialogHeader>
-              <div className="space-y-3">
-                <div><div className="label-cap mb-1">Name</div><Input data-testid="profile-name-input" value={name} onChange={(e)=>setName(e.target.value)} className="bg-[#151C33] border-white/5"/></div>
-                <div><div className="label-cap mb-1">Email</div><Input data-testid="profile-email-input" value={email} onChange={(e)=>setEmail(e.target.value)} className="bg-[#151C33] border-white/5"/></div>
-                <div><div className="label-cap mb-1">Phone</div><Input value={user?.phone || ""} disabled className="bg-[#151C33] border-white/5 opacity-60"/></div>
-              </div>
-              <DialogFooter><Button data-testid="profile-save-btn" onClick={save} disabled={busy} className="rounded-full bg-gold text-[#050A1F]">{busy?"Saving...":"Save"}</Button></DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
+        <div className="font-serif text-2xl">{user?.name}</div>
+        <div className="text-sm text-white/50">{user?.email} · {user?.phone}</div>
       </Card>
-      <Link to="/app/billing" data-testid="link-billing"><Card className="bg-[#0B132B] border-white/5 p-4 rounded-2xl flex items-center justify-between hover-lift"><div className="flex items-center gap-3"><CreditCard className="w-5 h-5 text-gold"/><span>Billing & AMC</span></div><ArrowRight className="w-4 h-4 text-white/40"/></Card></Link>
-      <Link to="/app/service" data-testid="link-service"><Card className="bg-[#0B132B] border-white/5 p-4 rounded-2xl flex items-center justify-between hover-lift"><div className="flex items-center gap-3"><Wrench className="w-5 h-5 text-gold"/><span>Service & Support</span></div><ArrowRight className="w-4 h-4 text-white/40"/></Card></Link>
-      <Card className="bg-[#0B132B] border-white/5 p-4 rounded-2xl flex items-center justify-between"><div className="flex items-center gap-3"><Sparkles className="w-5 h-5 text-gold"/><span>Alexa & Google Home</span></div><Switch defaultChecked/></Card>
+      <Link to="/app/billing" data-testid="link-billing"><Card className="bg-[#0B132B] border-white/5 p-4 rounded-2xl flex items-center justify-between hover:border-white/10 transition"><div className="flex items-center gap-3"><CreditCard className="w-5 h-5 text-gold"/><span>Billing</span></div><ArrowDown className="w-4 h-4 text-white/30"/></Card></Link>
+      <Link to="/app/service" data-testid="link-service"><Card className="bg-[#0B132B] border-white/5 p-4 rounded-2xl flex items-center justify-between hover:border-white/10 transition"><div className="flex items-center gap-3"><Wrench className="w-5 h-5 text-gold"/><span>Service</span></div><ArrowDown className="w-4 h-4 text-white/30"/></Card></Link>
+      <Card className="bg-[#0B132B] border-white/5 p-4 rounded-2xl flex items-center justify-between"><div className="flex items-center gap-3"><Sparkles className="w-5 h-5 text-gold"/><span>Alexa Integration</span></div><Badge className="bg-blue-500/20 text-blue-300 border-0">Coming</Badge></Card>
       <Button data-testid="profile-logout-btn" variant="outline" onClick={logout} className="w-full border-white/10 rounded-full"><LogOut className="w-4 h-4 mr-2"/>Sign Out</Button>
     </div>
   );
@@ -346,6 +316,17 @@ function Billing() {
     const [i, a] = await Promise.all([api.get("/invoices"), api.get("/amc")]);
     setInvoices(i.data); setAmc(a.data);
   };
+
+  const poll = useCallback(async (sid, attempts) => {
+    if (attempts >= 8) return;
+    try {
+      const r = await api.get(`/payments/checkout/status/${sid}`);
+      if (r.data.payment_status === "paid") { toast.success("Payment successful!"); load(); return; }
+      if (r.data.status === "expired") { toast.error("Payment expired"); return; }
+      setTimeout(()=>poll(sid, attempts+1), 2000);
+    } catch { setTimeout(()=>poll(sid, attempts+1), 2000); }
+  }, []);
+
   useEffect(() => {
     load();
     const params = new URLSearchParams(window.location.search);
@@ -354,17 +335,7 @@ function Billing() {
       poll(sid, 0);
       window.history.replaceState({}, "", "/app/billing");
     }
-  }, []);
-
-  const poll = async (sid, attempts) => {
-    if (attempts >= 8) return;
-    try {
-      const r = await api.get(`/payments/checkout/status/${sid}`);
-      if (r.data.payment_status === "paid") { toast.success("Payment successful!"); load(); return; }
-      if (r.data.status === "expired") { toast.error("Payment expired"); return; }
-      setTimeout(()=>poll(sid, attempts+1), 2000);
-    } catch { setTimeout(()=>poll(sid, attempts+1), 2000); }
-  };
+  }, [poll]);
 
   const checkout = async (body) => {
     setBusy(true);
@@ -381,7 +352,7 @@ function Billing() {
       <div>
         <div className="label-cap mb-3">Annual Maintenance Contract</div>
         <div className="grid gap-3">
-          {[{id:"amc_basic",name:"Basic",price:"₹2,999",f:["Phone support","2 service visits"]},{id:"amc_premium",name:"Premium",price:"₹5,999",f:["Priority support","5 visits","Free firmware"]},{id:"amc_elite",name:"Elite",price:"₹9,999",f:["24/7 dedicated","Unlimited visits","Hardware replacement"]}].map(p => (
+          {[{id:"amc_basic",name:"Basic",price:"₹2,999",f:["Phone support","2 service visits"]},{id:"amc_premium",name:"Premium",price:"₹5,999",f:["Priority support","5 visits","Free firmware updates"]}].map(p=>(
             <Card key={p.id} className="bg-[#0B132B] border-white/5 p-4 rounded-2xl">
               <div className="flex justify-between items-center">
                 <div>
