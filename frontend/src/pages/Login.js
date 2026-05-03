@@ -53,6 +53,7 @@ function CustomerLogin() {
   const [step, setStep] = useState(1);
   const [phone, setPhone] = useState("+919999900001");
   const [otp, setOtp] = useState("");
+  const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
 
   const send = async () => {
@@ -63,7 +64,7 @@ function CustomerLogin() {
 
   const verify = async () => {
     setBusy(true);
-    try { await verifyOtp(phone, otp); toast.success("Welcome to Niva Novus"); nav("/app"); }
+    try { await verifyOtp(phone, otp, name || undefined); toast.success("Welcome to Niva Novus"); nav("/app"); }
     catch (e) { toast.error("Invalid OTP"); } finally { setBusy(false); }
   };
 
@@ -74,9 +75,15 @@ function CustomerLogin() {
         <Input data-testid="customer-phone-input" value={phone} onChange={(e)=>setPhone(e.target.value)} disabled={step===2} className="mt-2 bg-[#151C33] border-white/5 h-12 rounded-xl" placeholder="+91 99999 00001" />
       </div>
       {step === 2 && (
-        <div className="fade-up">
-          <Label className="label-cap">OTP Code <span className="text-gold normal-case tracking-normal ml-2">(use 123456)</span></Label>
-          <Input data-testid="customer-otp-input" value={otp} onChange={(e)=>setOtp(e.target.value)} className="mt-2 bg-[#151C33] border-white/5 h-12 rounded-xl tracking-[0.5em] text-center text-lg" placeholder="••••••" maxLength={6}/>
+        <div className="fade-up space-y-4">
+          <div>
+            <Label className="label-cap">OTP Code <span className="text-gold normal-case tracking-normal ml-2">(use 123456)</span></Label>
+            <Input data-testid="customer-otp-input" value={otp} onChange={(e)=>setOtp(e.target.value)} className="mt-2 bg-[#151C33] border-white/5 h-12 rounded-xl tracking-[0.5em] text-center text-lg" placeholder="••••••" maxLength={6}/>
+          </div>
+          <div>
+            <Label className="label-cap">Your Name <span className="text-white/30 normal-case tracking-normal ml-2">(only for new accounts)</span></Label>
+            <Input data-testid="customer-name-input" value={name} onChange={(e)=>setName(e.target.value)} className="mt-2 bg-[#151C33] border-white/5 h-12 rounded-xl" placeholder="e.g. Priya Iyer"/>
+          </div>
         </div>
       )}
       {step === 1 ? (
