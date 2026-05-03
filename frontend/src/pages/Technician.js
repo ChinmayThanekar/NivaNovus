@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Routes, Route, Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -58,7 +58,7 @@ function JobList() {
                       <div className="text-xs text-white/50 mt-1 flex items-center gap-1"><Phone className="w-3 h-3"/>{j.phone}</div>
                     </div>
                     <div className="text-right">
-                      <Badge className={`${j.status==="completed"?"bg-green-500/20 text-green-300":j.status==="in_progress"?"bg-amber-500/20 text-amber-300":"bg-blue-500/20 text-blue-300"} border-0 capitalize`}>{j.status.replace("_"," ")}</Badge>
+                      <Badge className={`${j.status==="completed"?"bg-green-500/20 text-green-300":j.status==="in_progress"?"bg-amber-500/20 text-amber-300":"bg-blue-500/20 text-blue-300"} border-0 capitalize`}>{j.status}</Badge>
                       <div className="text-[10px] text-white/40 mt-2 uppercase tracking-widest">{j.type}</div>
                     </div>
                   </div>
@@ -79,8 +79,9 @@ function JobDetail() {
   const [signature, setSignature] = useState("");
   const [report, setReport] = useState("");
 
-  const load = () => api.get(`/jobs/${id}`).then(r=>setJob(r.data));
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => { 
+    api.get(`/jobs/${id}`).then(r => setJob(r.data)); 
+  }, [id]);
 
   if (!job) return <div className="px-5 pt-6 text-white/50">Loading...</div>;
 
@@ -90,13 +91,19 @@ function JobDetail() {
     await api.patch(`/jobs/${id}`, { checklist: cl });
   };
 
-  const start = async () => { await api.patch(`/jobs/${id}`, { status: "in_progress" }); load(); toast.success("Job started"); };
+  const start = async () => { 
+    await api.patch(`/jobs/${id}`, { status: "in_progress" }); 
+    api.get(`/jobs/${id}`).then(r => setJob(r.data));
+    toast.success("Job started"); 
+  };
+
   const close = async () => {
     if (!signature) { toast.error("Customer signature required"); return; }
     await api.patch(`/jobs/${id}`, { status: "completed", signature, report, completed_at: new Date().toISOString() });
     toast.success("Job closed & service report generated");
     nav("/tech");
   };
+
   const addPhoto = async () => {
     const photos = [...(job.photos||[]), `https://picsum.photos/seed/${Date.now()}/400/300`];
     await api.patch(`/jobs/${id}`, { photos });
@@ -119,7 +126,7 @@ function JobDetail() {
         <img src={mapUrl} alt="map" className="w-full h-44 object-cover" onError={(e)=>{e.target.style.display="none";}} />
         <div className="p-4 flex gap-3">
           <Button variant="outline" className="rounded-full border-white/10" asChild><a href={`tel:${job.phone}`} data-testid="call-customer"><Phone className="w-3 h-3 mr-1"/>Call</a></Button>
-          <Button variant="outline" className="rounded-full border-white/10" asChild><a target="_blank" rel="noreferrer" href={`https://maps.google.com/?q=${job.lat},${job.lng}`} data-testid="open-map"><MapPin className="w-3 h-3 mr-1"/>Navigate</a></Button>
+          <Button variant="outline" className="rounded-full border-white/10" asChild><a target="_blank" rel="noreferrer" href={`https://maps.google.com/?q=${job.lat},${job.lng}`} data-testid="open-maps"><MapPin className="w-3 h-3 mr-1"/>Directions</a></Button>
         </div>
       </Card>
 
@@ -162,7 +169,7 @@ function JobDetail() {
         <div className="label-cap mb-2">Service Report</div>
         <Textarea data-testid="service-report" placeholder="Notes, parts replaced, warranty..." value={report} onChange={e=>setReport(e.target.value)} className="bg-[#151C33] border-white/5"/>
         <div className="label-cap mb-2 mt-4 flex items-center gap-2"><FileSignature className="w-4 h-4 text-gold"/>Customer Signature</div>
-        <Input data-testid="customer-signature" placeholder="Type customer name to sign" value={signature} onChange={e=>setSignature(e.target.value)} className="bg-[#151C33] border-white/5 font-serif italic h-14 text-lg"/>
+        <Input data-testid="customer-signature" placeholder="Type customer name to sign" value={signature} onChange={e=>setSignature(e.target.value)} className="bg-[#151C33] border-white/5 font-serif"/>
       </Card>
 
       <div className="flex gap-3">
