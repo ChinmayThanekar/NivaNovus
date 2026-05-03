@@ -1,5 +1,5 @@
 """Niva Novus - Smart Home Automation Platform Backend."""
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -8,13 +8,14 @@ import os
 import logging
 import asyncio
 from pathlib import Path
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict, Any, Tuple
 import uuid
 from datetime import datetime, timezone, timedelta
 import jwt
 import bcrypt
 import random
+import json
 
 from seed import seed_all
 from memory_db import MemoryDB
@@ -123,6 +124,10 @@ def require_role(*roles):
 
     return checker
 
+async def _crud_get(coll, user, mine_field=None):
+    q = {} if user["role"] == "admin" else (({mine_field: user["id"]}) if mine_field else {})
+    return await db[coll].find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+
 
 # ---------- Models ----------
 class OTPSend(BaseModel):
@@ -151,6 +156,15 @@ class TicketCreate(BaseModel):
 class CheckoutCreate(BaseModel):
     package_id: str
     origin_url: str
+
+class CreateModel(BaseModel):
+    data: Dict[str, Any]
+
+class CheckoutRequest(BaseModel):
+    package_id: Optional[str] = None
+    invoice_id: Optional[str] = None
+    origin_url: str
+    metadata: Optional[Dict[str, str]] = None
 
 
 # ---------- WebSocket Manager ----------
@@ -262,172 +276,362 @@ async def upd_me(payload: Dict[str, Any], user=Depends(get_current_user)):
     return await db.users.find_one({"id": user["id"]}, {"_id": 0, "password": 0})
 
 
-# ---------- Customer: Rooms / Devices / Scenes / Notifications ----------
+# ---------- Projects / Rooms / Devices ----------
+@api_router.get("/projects")
+async def list_projects(user=Depends(get_current_user)):
+    q = {} if user["role"] == "admin" else {"user_id": user["id"]}
+    return await db.projects.find(q, {"_id": 0}).to_list(500)
+
 @api_router.get("/rooms")
-async def rooms(user=Depends(require_role("customer"))):
-    proj_id = await get_customer_project_id(user)
-    if not proj_id:
-        return []
-    cur = db.rooms.find({"project_id": proj_id}, {"_id": 0})
-    return await cur.to_list(length=1000)
+async def list_rooms(project_id: Optional[str] = None, user=Depends(get_current_user)):
+    q = {}
+    if project_id:
+        q["project_id"] = project_id
+    elif user["role"] == "customer":
+        proj = await db.projects.find_one({"user_id": user["id"]}, {"_id": 0})
+        if proj:
+            q["project_id"] = proj["id"]
+    return await db.rooms.find(q, {"_id": 0}).to_list(1000)
 
 
 @api_router.get("/devices")
-async def devices(user=Depends(require_role("customer"))):
-    proj_id = await get_customer_project_id(user)
-    if not proj_id:
-        return []
-    cur = db.devices.find({"project_id": proj_id}, {"_id": 0})
-    return await cur.to_list(length=2000)
+async def list_devices(room_id: Optional[str] = None, project_id: Optional[str] = None, user=Depends(get_current_user)):
+    q = {}
+    if room_id:
+        q["room_id"] = room_id
+    if project_id:
+        q["project_id"] = project_id
+    if not q and user["role"] == "customer":
+        proj = await db.projects.find_one({"user_id": user["id"]}, {"_id": 0})
+        if proj:
+            q["project_id"] = proj["id"]
+    return await db.devices.find(q, {"_id": 0}).to_list(2000)
 
 
 @api_router.post("/devices/{device_id}/command")
-async def device_command(device_id: str, payload: DeviceCommand, user=Depends(require_role("customer"))):
-    proj_id = await get_customer_project_id(user)
-    if not proj_id:
-        raise HTTPException(404, "Project not found")
-    dev = await db.devices.find_one({"id": device_id, "project_id": proj_id}, {"_id": 0})
-    if not dev:
+async def device_command(device_id: str, cmd: DeviceCommand, user=Depends(get_current_user)):
+    device = await db.devices.find_one({"id": device_id}, {"_id": 0})
+    if not device:
         raise HTTPException(404, "Device not found")
-    new_state = {**(dev.get("state") or {}), **(payload.state or {})}
-    await db.devices.update_one(
-        {"id": device_id, "project_id": proj_id},
-        {"$set": {"state": new_state, "last_active": now_iso(), "online": True}},
-    )
+    new_state = {**device.get("state", {}), **cmd.state}
+    await db.devices.update_one({"id": device_id}, {"$set": {"state": new_state, "last_active": now_iso(), "online": True}})
+    log = {
+        "id": str(uuid.uuid4()),
+        "device_id": device_id,
+        "user_id": user["id"],
+        "command": cmd.state,
+        "timestamp": now_iso(),
+    }
+    await db.command_logs.insert_one(dict(log))
     await manager.broadcast({"type": "device_state", "device_id": device_id, "state": new_state})
     return {"id": device_id, "state": new_state}
 
 
+# ---------- Scenes ----------
 @api_router.get("/scenes")
-async def scenes(user=Depends(require_role("customer"))):
-    cur = db.scenes.find({"user_id": user["id"]}, {"_id": 0})
-    return await cur.to_list(length=1000)
-
+async def list_scenes(user=Depends(get_current_user)):
+    q = {} if user["role"] == "admin" else {"user_id": user["id"]}
+    return await db.scenes.find(q, {"_id": 0}).to_list(200)
 
 @api_router.post("/scenes/{scene_id}/execute")
-async def scenes_execute(scene_id: str, user=Depends(require_role("customer"))):
-    scene = await db.scenes.find_one({"id": scene_id, "user_id": user["id"]}, {"_id": 0})
+async def exec_scene(scene_id: str, user=Depends(get_current_user)):
+    scene = await db.scenes.find_one({"id": scene_id}, {"_id": 0})
     if not scene:
         raise HTTPException(404, "Scene not found")
-    proj_id = await get_customer_project_id(user)
-    if proj_id:
-        for act in scene.get("actions", []):
-            did = act.get("device_id")
-            if not did:
-                continue
-            dev = await db.devices.find_one({"id": did, "project_id": proj_id}, {"_id": 0})
-            if not dev:
-                continue
-            new_state = {**(dev.get("state") or {}), **(act.get("state") or {})}
-            await db.devices.update_one({"id": did, "project_id": proj_id}, {"$set": {"state": new_state, "last_active": now_iso()}})
+    for action in scene.get("actions", []):
+        d = await db.devices.find_one({"id": action["device_id"]}, {"_id": 0})
+        if d:
+            new_state = {**d.get("state", {}), **action.get("state", {})}
+            await db.devices.update_one({"id": d["id"]}, {"$set": {"state": new_state, "last_active": now_iso()}})
+            await manager.broadcast({"type": "device_state", "device_id": d["id"], "state": new_state})
     return {"success": True, "scene_id": scene_id, "executed_at": now_iso()}
 
 
+# ---------- Notifications ----------
 @api_router.get("/notifications")
-async def notifications(user=Depends(require_role("customer"))):
-    cur = db.notifications.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
-    return await cur.to_list(length=2000)
+async def get_notifications(user=Depends(get_current_user)):
+    q = {} if user["role"] == "admin" else {"user_id": user["id"]}
+    return await db.notifications.find(q, {"_id": 0}).sort("created_at", -1).to_list(2000)
+
+@api_router.post("/notifications/{nid}/read")
+async def read_notif(nid: str, user=Depends(get_current_user)):
+    await db.notifications.update_one({"id": nid}, {"$set": {"read": True}})
+    return {"ok": True}
 
 
-# ---------- Technician: Jobs ----------
+# ---------- Schedules ----------
+@api_router.get("/schedules")
+async def list_schedules(user=Depends(get_current_user)):
+    q = {} if user["role"] == "admin" else {"user_id": user["id"]}
+    return await db.schedules.find(q, {"_id": 0}).to_list(200)
+
+@api_router.post("/schedules")
+async def create_schedule(payload: Dict[str, Any], user=Depends(get_current_user)):
+    s = {"id": str(uuid.uuid4()), "user_id": user["id"], "created_at": now_iso(), **payload}
+    await db.schedules.insert_one(dict(s))
+    s.pop("_id", None)
+    return s
+
+@api_router.delete("/schedules/{sid}")
+async def del_schedule(sid: str, user=Depends(get_current_user)):
+    await db.schedules.delete_one({"id": sid, "user_id": user["id"]})
+    return {"ok": True}
+
+
+# ---------- Energy / Analytics ----------
+@api_router.get("/energy/summary")
+async def energy_summary(user=Depends(get_current_user)):
+    if user["role"] == "admin":
+        device_filter = {}
+    else:
+        project_ids = [p["id"] async for p in db.projects.find({"user_id": user["id"]}, {"id": 1, "_id": 0})]
+        device_filter = {"project_id": {"$in": project_ids}} if project_ids else {}
+    
+    devices = await db.devices.find(device_filter, {"_id": 0}).to_list(2000)
+    today_kwh = round(sum(d.get("power_w", 0) for d in devices if d.get("state", {}).get("on")) * 0.012, 2)
+    week = [{"day": d, "kwh": round(8 + i * 1.5 + (i % 3) * 2.1, 1)} for i, d in enumerate(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])]
+    
+    by_room = {}
+    for d in devices:
+        rid = d.get("room_id", "other")
+        by_room[rid] = by_room.get(rid, 0) + d.get("power_w", 0) * 0.012
+    
+    rooms = await db.rooms.find({}, {"_id": 0}).to_list(500)
+    rmap = {r["id"]: r["name"] for r in rooms}
+    by_room_list = [{"room": rmap.get(k, "Other"), "kwh": round(v, 2)} for k, v in by_room.items()]
+    return {"today_kwh": today_kwh, "week": week, "by_room": by_room_list, "savings_pct": 18}
+
+
+# ---------- Jobs (Technician) ----------
 @api_router.get("/jobs")
-async def jobs_list(user=Depends(require_role("technician"))):
-    cur = db.jobs.find({"technician_id": user["id"]}, {"_id": 0}).sort("scheduled_at", -1)
-    return await cur.to_list(length=2000)
-
+async def list_jobs(user=Depends(get_current_user)):
+    if user["role"] == "technician":
+        q = {"technician_id": user["id"]}
+    elif user["role"] == "admin":
+        q = {}
+    else:
+        q = {"customer_id": user["id"]}
+    return await db.jobs.find(q, {"_id": 0}).sort("scheduled_at", -1).to_list(500)
 
 @api_router.get("/jobs/{job_id}")
-async def jobs_detail(job_id: str, user=Depends(require_role("technician"))):
-    job = await db.jobs.find_one({"id": job_id, "technician_id": user["id"]}, {"_id": 0})
-    if not job:
+async def get_job(job_id: str, user=Depends(get_current_user)):
+    j = await db.jobs.find_one({"id": job_id}, {"_id": 0})
+    if not j:
         raise HTTPException(404, "Job not found")
-    return job
-
+    if user["role"] == "technician" and j.get("technician_id") != user["id"]:
+        raise HTTPException(403, "Not your job")
+    if user["role"] == "customer" and j.get("customer_id") != user["id"]:
+        raise HTTPException(403, "Not your job")
+    return j
 
 @api_router.patch("/jobs/{job_id}")
-async def jobs_patch(job_id: str, payload: Dict[str, Any], user=Depends(require_role("technician"))):
-    job = await db.jobs.find_one({"id": job_id, "technician_id": user["id"]}, {"_id": 0})
-    if not job:
+async def update_job(job_id: str, payload: Dict[str, Any], user=Depends(get_current_user)):
+    if user["role"] not in ("technician", "admin"):
+        raise HTTPException(403, "Forbidden")
+    j = await db.jobs.find_one({"id": job_id}, {"_id": 0})
+    if not j:
         raise HTTPException(404, "Job not found")
-    editable = {k: v for k, v in payload.items() if k in {"status", "checklist", "photos", "signature", "report", "completed_at"}}
-    if not editable:
-        raise HTTPException(400, "No editable fields")
-    editable["updated_at"] = now_iso()
-    await db.jobs.update_one({"id": job_id, "technician_id": user["id"]}, {"$set": editable})
-    return await db.jobs.find_one({"id": job_id, "technician_id": user["id"]}, {"_id": 0})
+    if user["role"] == "technician" and j.get("technician_id") != user["id"]:
+        raise HTTPException(403, "Not your job")
+    payload["updated_at"] = now_iso()
+    await db.jobs.update_one({"id": job_id}, {"$set": payload})
+    return await db.jobs.find_one({"id": job_id}, {"_id": 0})
+
+@api_router.post("/jobs")
+async def create_job(payload: Dict[str, Any], user=Depends(require_role("admin"))):
+    j = {"id": str(uuid.uuid4()), "status": "scheduled", "checklist": payload.get("checklist", []), "photos": [], "created_at": now_iso(), **payload}
+    await db.jobs.insert_one(dict(j))
+    j.pop("_id", None)
+    return j
 
 
-# ---------- Customer: Tickets / Billing / AMC / Energy ----------
+# ---------- Tickets / Complaints ----------
 @api_router.get("/tickets")
-async def tickets_list(user=Depends(get_current_user)):
+async def list_tickets(user=Depends(get_current_user)):
     q = {} if user["role"] == "admin" else {"user_id": user["id"]}
-    cur = db.tickets.find(q, {"_id": 0}).sort("created_at", -1)
-    return await cur.to_list(length=2000)
-
+    return await db.tickets.find(q, {"_id": 0}).sort("created_at", -1).to_list(2000)
 
 @api_router.post("/tickets")
-async def tickets_create(payload: TicketCreate, user=Depends(require_role("customer"))):
-    doc = {
-        "id": str(uuid.uuid4()),
-        "user_id": user["id"],
-        "user_name": user.get("name", ""),
-        "subject": payload.title,
-        "title": payload.title,
-        "description": payload.description,
-        "status": "open",
-        "priority": payload.priority,
-        "created_at": now_iso(),
-    }
-    await db.tickets.insert_one(dict(doc))
-    return doc
-
-
-@api_router.patch("/tickets/{ticket_id}")
-async def tickets_patch(ticket_id: str, payload: Dict[str, Any], user=Depends(get_current_user)):
-    if user["role"] != "admin":
-        raise HTTPException(403, "Requires role: ('admin',)")
-    editable = {k: v for k, v in payload.items() if k in {"status", "priority"}}
-    if not editable:
-        raise HTTPException(400, "No editable fields")
-    editable["updated_at"] = now_iso()
-    await db.tickets.update_one({"id": ticket_id}, {"$set": editable})
-    t = await db.tickets.find_one({"id": ticket_id}, {"_id": 0})
-    if not t:
-        raise HTTPException(404, "Ticket not found")
+async def create_ticket(payload: Dict[str, Any], user=Depends(get_current_user)):
+    t = {"id": str(uuid.uuid4()), "user_id": user["id"], "user_name": user.get("name"), "status": "open", "priority": payload.get("priority", "medium"), "created_at": now_iso(), **payload}
+    await db.tickets.insert_one(dict(t))
+    t.pop("_id", None)
     return t
 
+@api_router.patch("/tickets/{tid}")
+async def update_ticket(tid: str, payload: Dict[str, Any], user=Depends(get_current_user)):
+    t = await db.tickets.find_one({"id": tid}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    if user["role"] != "admin" and t.get("user_id") != user["id"]:
+        raise HTTPException(403, "Not your ticket")
+    await db.tickets.update_one({"id": tid}, {"$set": {**payload, "updated_at": now_iso()}})
+    return await db.tickets.find_one({"id": tid}, {"_id": 0})
+
+
+# ---------- CRM: Leads, Customers, Quotations, Invoices, AMC ----------
+@api_router.get("/leads")
+async def get_leads(user=Depends(require_role("admin"))):
+    return await _crud_get("leads", user)
+
+@api_router.post("/leads")
+async def add_lead(payload: Dict[str, Any], user=Depends(require_role("admin"))):
+    l = {"id": str(uuid.uuid4()), "status": "new", "created_at": now_iso(), **payload}
+    await db.leads.insert_one(dict(l))
+    l.pop("_id", None)
+    return l
+
+@api_router.post("/leads/enquiry")
+async def public_enquiry(payload: Dict[str, Any]):
+    """Public contact enquiry endpoint - no authentication required"""
+    name = (payload.get("name") or "").strip()
+    phone = (payload.get("phone") or "").strip()
+    if not name or not phone:
+        raise HTTPException(400, "Name and phone are required")
+    lead = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "phone": phone,
+        "email": (payload.get("email") or "").strip(),
+        "interest": (payload.get("message") or payload.get("interest") or "Website enquiry"),
+        "source": "Website",
+        "value": 0,
+        "status": "new",
+        "created_at": now_iso(),
+    }
+    await db.leads.insert_one(dict(lead))
+    lead.pop("_id", None)
+    return {"success": True, "lead_id": lead["id"]}
+
+@api_router.patch("/leads/{lid}")
+async def upd_lead(lid: str, payload: Dict[str, Any], user=Depends(require_role("admin"))):
+    await db.leads.update_one({"id": lid}, {"$set": payload})
+    return await db.leads.find_one({"id": lid}, {"_id": 0})
+
+@api_router.get("/customers")
+async def get_customers(user=Depends(require_role("admin"))):
+    return await db.users.find({"role": "customer"}, {"_id": 0, "password": 0}).to_list(5000)
+
+@api_router.patch("/customers/{cid}")
+async def upd_customer(cid: str, payload: Dict[str, Any], user=Depends(require_role("admin"))):
+    payload.pop("id", None); payload.pop("password", None); payload.pop("role", None); payload.pop("created_at", None)
+    payload["updated_at"] = now_iso()
+    await db.users.update_one({"id": cid, "role": "customer"}, {"$set": payload})
+    return await db.users.find_one({"id": cid}, {"_id": 0, "password": 0})
+
+@api_router.get("/quotations")
+async def get_quotations(user=Depends(require_role("admin"))):
+    return await db.quotations.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+@api_router.post("/quotations")
+async def add_quotation(payload: Dict[str, Any], user=Depends(require_role("admin"))):
+    q = {"id": str(uuid.uuid4()), "number": f"QT-{datetime.now().strftime('%Y%m')}-{str(uuid.uuid4())[:4].upper()}", "status": "draft", "created_at": now_iso(), **payload}
+    await db.quotations.insert_one(dict(q))
+    q.pop("_id", None)
+    return q
 
 @api_router.get("/invoices")
-async def invoices(user=Depends(require_role("customer"))):
-    cur = db.invoices.find({"customer_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
-    return await cur.to_list(length=2000)
+async def get_invoices(user=Depends(get_current_user)):
+    q = {} if user["role"] == "admin" else {"customer_id": user["id"]}
+    return await db.invoices.find(q, {"_id": 0}).sort("created_at", -1).to_list(2000)
 
+@api_router.post("/invoices")
+async def add_invoice(payload: Dict[str, Any], user=Depends(require_role("admin"))):
+    inv = {"id": str(uuid.uuid4()), "number": f"INV-{datetime.now().strftime('%Y%m')}-{str(uuid.uuid4())[:4].upper()}", "status": "unpaid", "gst_pct": 18, "created_at": now_iso(), **payload}
+    await db.invoices.insert_one(dict(inv))
+    inv.pop("_id", None)
+    return inv
+
+@api_router.patch("/invoices/{iid}")
+async def upd_invoice(iid: str, payload: Dict[str, Any], user=Depends(require_role("admin"))):
+    payload.pop("id", None); payload.pop("number", None); payload.pop("created_at", None)
+    payload["updated_at"] = now_iso()
+    await db.invoices.update_one({"id": iid}, {"$set": payload})
+    return await db.invoices.find_one({"id": iid}, {"_id": 0})
 
 @api_router.get("/amc")
-async def amc(user=Depends(require_role("customer"))):
-    cur = db.amc.find({"customer_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
-    return await cur.to_list(length=100)
+async def get_amc(user=Depends(get_current_user)):
+    q = {} if user["role"] == "admin" else {"customer_id": user["id"]}
+    return await db.amc.find(q, {"_id": 0}).to_list(200)
 
 
-@api_router.get("/energy/summary")
-async def energy_summary(user=Depends(require_role("customer"))):
-    proj_id = await get_customer_project_id(user)
-    if not proj_id:
-        return {"today_kwh": 0, "week": [], "by_room": []}
+# ---------- Inventory & Products ----------
+@api_router.get("/inventory")
+async def get_inventory(user=Depends(require_role("admin"))):
+    return await db.inventory.find({}, {"_id": 0}).to_list(5000)
 
-    devs = await db.devices.find({"project_id": proj_id}, {"_id": 0}).to_list(length=2000)
-    today_kwh = round(sum((d.get("power_w") or 0) for d in devs if (d.get("state") or {}).get("on")) / 1000.0, 2)
-    week = [{"day": d, "kwh": round(max(0.2, today_kwh * (0.6 + 0.1 * i)), 2)} for i, d in enumerate(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])]
-    by_room = []
-    rooms = await db.rooms.find({"project_id": proj_id}, {"_id": 0}).to_list(length=1000)
-    for r in rooms:
-        rdev = [d for d in devs if d.get("room_id") == r.get("id")]
-        kwh = round(sum((d.get("power_w") or 0) for d in rdev if (d.get("state") or {}).get("on")) / 1000.0, 2)
-        by_room.append({"room": r.get("name"), "kwh": kwh})
-    return {"today_kwh": today_kwh, "week": week, "by_room": by_room}
+@api_router.post("/inventory")
+async def add_inventory(payload: Dict[str, Any], user=Depends(require_role("admin"))):
+    item = {
+        "id": str(uuid.uuid4()),
+        "sku": payload.get("sku", f"NV-{str(uuid.uuid4())[:6].upper()}"),
+        "name": payload.get("name", "New Item"),
+        "category": payload.get("category", "Other"),
+        "stock": int(payload.get("stock", 0)),
+        "min_stock": int(payload.get("min_stock", 5)),
+        "price": float(payload.get("price", 0)),
+        "created_at": now_iso(),
+    }
+    await db.inventory.insert_one(dict(item))
+    item.pop("_id", None)
+    return item
+
+@api_router.patch("/inventory/{iid}")
+async def upd_inventory(iid: str, payload: Dict[str, Any], user=Depends(require_role("admin"))):
+    payload.pop("id", None); payload.pop("created_at", None)
+    if "stock" in payload: payload["stock"] = int(payload["stock"])
+    if "min_stock" in payload: payload["min_stock"] = int(payload["min_stock"])
+    if "price" in payload: payload["price"] = float(payload["price"])
+    await db.inventory.update_one({"id": iid}, {"$set": payload})
+    return await db.inventory.find_one({"id": iid}, {"_id": 0})
+
+@api_router.get("/products")
+async def get_products(user=Depends(get_current_user)):
+    return await db.products.find({}, {"_id": 0}).to_list(500)
 
 
-# ---------- Admin: Analytics / Leads / Customers / Inventory ----------
+# ---------- Chat ----------
+@api_router.get("/chat/messages")
+async def get_chat(thread_id: Optional[str] = None, user=Depends(get_current_user)):
+    if user["role"] != "admin":
+        thread_id = user["id"]
+    if not thread_id:
+        return []
+    return await db.chat_messages.find({"thread_id": thread_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
+
+@api_router.get("/chat/threads")
+async def get_threads(user=Depends(require_role("admin"))):
+    pipeline = [
+        {"$sort": {"created_at": -1}},
+        {"$group": {"_id": "$thread_id", "last": {"$first": "$content"}, "name": {"$first": "$user_name"}, "at": {"$first": "$created_at"}}},
+    ]
+    out = []
+    async for r in db.chat_messages.aggregate(pipeline):
+        out.append({"thread_id": r["_id"], "last": r["last"], "name": r["name"], "at": r["at"]})
+    return out
+
+@api_router.post("/chat/messages")
+async def post_chat(payload: Dict[str, Any], user=Depends(get_current_user)):
+    content = (payload or {}).get("content", "").strip()
+    if not content:
+        raise HTTPException(400, "content required")
+    thread = payload.get("thread_id") or user["id"]
+    msg = {
+        "id": str(uuid.uuid4()),
+        "thread_id": thread,
+        "sender_id": user["id"],
+        "sender_role": user["role"],
+        "user_name": user.get("name"),
+        "content": content,
+        "created_at": now_iso(),
+    }
+    await db.chat_messages.insert_one(dict(msg))
+    msg.pop("_id", None)
+    await manager.broadcast({"type": "chat", "message": msg})
+    return msg
+
+
+# ---------- Admin Analytics ----------
 @api_router.get("/analytics/overview")
 async def analytics_overview(user=Depends(require_role("admin"))):
     customers = await db.users.count_documents({"role": "customer"})
@@ -464,78 +668,132 @@ async def analytics_overview(user=Depends(require_role("admin"))):
     }
 
 
-@api_router.get("/leads")
-async def leads(user=Depends(require_role("admin"))):
-    cur = db.leads.find({}, {"_id": 0}).sort("created_at", -1)
-    return await cur.to_list(length=5000)
-
-
-@api_router.get("/customers")
-async def customers(user=Depends(require_role("admin"))):
-    cur = db.users.find({"role": "customer"}, {"_id": 0, "password": 0}).sort("created_at", -1)
-    return await cur.to_list(length=5000)
-
-
-@api_router.get("/inventory")
-async def inventory(user=Depends(require_role("admin"))):
-    cur = db.inventory.find({}, {"_id": 0})
-    return await cur.to_list(length=5000)
-
-
-# ---------- Payments (demo-friendly stub) ----------
-@api_router.post("/payments/checkout/session")
-async def checkout_session(payload: CheckoutCreate, user=Depends(require_role("customer"))):
-    sid = f"cs_test_{uuid.uuid4().hex[:24]}"
-    # return a plausible Stripe URL (frontend/tests only check substring)
-    return {"session_id": sid, "url": f"https://checkout.stripe.com/pay/{sid}"}
-
-
-@api_router.get("/payments/checkout/status/{session_id}")
-async def checkout_status(session_id: str, user=Depends(require_role("customer"))):
-    return {"session_id": session_id, "payment_status": "unpaid"}
-
-
-# ---------- Chat (minimal) ----------
-@api_router.get("/chat/threads")
-async def chat_threads(user=Depends(require_role("admin"))):
-    # group by thread_id (customer id)
-    pipeline = [
-        {"$sort": {"created_at": -1}},
-        {"$group": {"_id": "$thread_id", "last": {"$first": "$$ROOT"}}},
-    ]
-    rows = await db.chat_messages.aggregate(pipeline).to_list(length=2000)
-    out = []
-    for r in rows:
-        last = r.get("last") or {}
-        out.append(
-            {
-                "thread_id": r["_id"],
-                "last_message": last.get("content", ""),
-                "updated_at": last.get("created_at", now_iso()),
-            }
-        )
-    return out
-
-
-@api_router.post("/chat/messages")
-async def chat_post(payload: Dict[str, Any], user=Depends(get_current_user)):
-    content = (payload or {}).get("content", "").strip()
-    if not content:
-        raise HTTPException(400, "content required")
-    thread_id = payload.get("thread_id") or user["id"]
-    doc = {
-        "id": str(uuid.uuid4()),
-        "thread_id": thread_id,
-        "sender_id": user["id"],
-        "sender_role": user["role"],
-        "user_name": user.get("name", ""),
-        "content": content,
-        "created_at": now_iso(),
+# ---------- Stripe Payments (if available) ----------
+try:
+    from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
+    
+    PACKAGES = {
+        "amc_basic": {"amount": 2999.0, "name": "AMC Basic Plan (1 Year)"},
+        "amc_premium": {"amount": 5999.0, "name": "AMC Premium Plan (1 Year)"},
+        "amc_elite": {"amount": 9999.0, "name": "AMC Elite Plan (1 Year)"},
     }
-    await db.chat_messages.insert_one(dict(doc))
-    return doc
+    
+    @api_router.post("/payments/checkout/session")
+    async def create_checkout(payload: CheckoutRequest, request: Request, user=Depends(get_current_user)):
+        if payload.package_id:
+            if payload.package_id not in PACKAGES:
+                raise HTTPException(400, "Invalid package")
+            amount = PACKAGES[payload.package_id]["amount"]
+            desc = PACKAGES[payload.package_id]["name"]
+        elif payload.invoice_id:
+            inv = await db.invoices.find_one({"id": payload.invoice_id}, {"_id": 0})
+            if not inv:
+                raise HTTPException(404, "Invoice not found")
+            amount = float(inv["amount"])
+            desc = f"Invoice {inv['number']}"
+        else:
+            raise HTTPException(400, "package_id or invoice_id required")
+
+        api_key = os.environ.get("STRIPE_API_KEY")
+        host_url = str(request.base_url).rstrip("/")
+        webhook_url = f"{host_url}/api/webhook/stripe"
+        sc = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
+
+        success_url = f"{payload.origin_url}/billing?session_id={{CHECKOUT_SESSION_ID}}"
+        cancel_url = f"{payload.origin_url}/billing"
+        meta = {"user_id": user["id"], "desc": desc, **(payload.metadata or {})}
+        if payload.package_id:
+            meta["package_id"] = payload.package_id
+        if payload.invoice_id:
+            meta["invoice_id"] = payload.invoice_id
+
+        req = CheckoutSessionRequest(amount=amount, currency="usd", success_url=success_url, cancel_url=cancel_url, metadata=meta)
+        session = await sc.create_checkout_session(req)
+
+        txn = {
+            "id": str(uuid.uuid4()),
+            "session_id": session.session_id,
+            "user_id": user["id"],
+            "amount": amount,
+            "currency": "usd",
+            "metadata": meta,
+            "payment_status": "pending",
+            "status": "initiated",
+            "created_at": now_iso(),
+        }
+        await db.payment_transactions.insert_one(dict(txn))
+        return {"url": session.url, "session_id": session.session_id}
+
+    @api_router.get("/payments/checkout/status/{session_id}")
+    async def checkout_status(session_id: str, request: Request, user=Depends(get_current_user)):
+        api_key = os.environ.get("STRIPE_API_KEY")
+        host_url = str(request.base_url).rstrip("/")
+        sc = StripeCheckout(api_key=api_key, webhook_url=f"{host_url}/api/webhook/stripe")
+
+        txn = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+        try:
+            status_resp = await sc.get_checkout_status(session_id)
+        except Exception as e:
+            logger.warning(f"Stripe status retrieval failed, using local cache: {e}")
+            if txn:
+                return {"status": txn.get("status", "pending"), "payment_status": txn.get("payment_status", "pending"), "amount_total": int(float(txn.get("amount", 0)) * 100), "currency": txn.get("currency", "usd")}
+            raise HTTPException(404, "Session not found")
+
+        if txn and txn.get("payment_status") != "paid" and status_resp.payment_status == "paid":
+            await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"payment_status": "paid", "status": "completed", "completed_at": now_iso()}})
+            # Mark invoice paid if invoice
+            meta = txn.get("metadata", {})
+            if meta.get("invoice_id"):
+                await db.invoices.update_one({"id": meta["invoice_id"]}, {"$set": {"status": "paid", "paid_at": now_iso()}})
+            if meta.get("package_id"):
+                # Add AMC subscription
+                amc = {
+                    "id": str(uuid.uuid4()),
+                    "customer_id": txn["user_id"],
+                    "plan": meta["package_id"],
+                    "amount": txn["amount"],
+                    "start_date": now_iso(),
+                    "end_date": (datetime.now(timezone.utc) + timedelta(days=365)).isoformat(),
+                    "status": "active",
+                    "created_at": now_iso(),
+                }
+                await db.amc.insert_one(dict(amc))
+
+        return {"status": status_resp.status, "payment_status": status_resp.payment_status, "amount_total": status_resp.amount_total, "currency": status_resp.currency}
+
+    @api_router.post("/webhook/stripe")
+    async def stripe_webhook(request: Request):
+        body = await request.body()
+        sig = request.headers.get("Stripe-Signature", "")
+        api_key = os.environ.get("STRIPE_API_KEY")
+        host_url = str(request.base_url).rstrip("/")
+        sc = StripeCheckout(api_key=api_key, webhook_url=f"{host_url}/api/webhook/stripe")
+        try:
+            evt = await sc.handle_webhook(body, sig)
+            if evt.payment_status == "paid":
+                await db.payment_transactions.update_one({"session_id": evt.session_id}, {"$set": {"payment_status": "paid", "status": "completed"}})
+        except Exception as e:
+            logger.error(f"Webhook err: {e}")
+        return {"ok": True}
+
+except ImportError:
+    # Stripe integration not available
+    logger.info("Stripe integration not available - payment endpoints will return 404")
+    pass
 
 
+# ---------- WebSocket ----------
+@app.websocket("/api/ws")
+async def ws_endpoint(ws: WebSocket):
+    await manager.connect(ws)
+    try:
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(ws)
+
+
+# ---------- Startup & Shutdown ----------
 @app.on_event("startup")
 async def _startup():
     global db
@@ -550,6 +808,11 @@ async def _startup():
         app.state.db_mode = "memory"
 
     await ensure_seeded()
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    mongo_client.close()
 
 
 app.include_router(api_router)
