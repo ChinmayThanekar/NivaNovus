@@ -7,6 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "sonner";
+import { Plus, Pencil } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { LineChart, Line, BarChart, Bar, AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell } from "recharts";
 import { LogOut, Users, Cpu, AlertCircle, IndianRupee, TrendingUp, Briefcase, Package, FileText, MessageSquare, LayoutDashboard, Lightbulb } from "lucide-react";
@@ -153,28 +157,68 @@ function DataTable({ rows, columns, title, testid, action }) {
 
 function Leads() {
   const [rows, setRows] = useState([]);
-  useEffect(() => { api.get("/leads").then(r=>setRows(r.data)); }, []);
+  const load = () => api.get("/leads").then(r=>setRows(r.data));
+  useEffect(() => { load(); }, []);
+  const updateStatus = async (id, status) => {
+    try { await api.patch(`/leads/${id}`, { status }); toast.success("Status updated"); load(); }
+    catch { toast.error("Failed"); }
+  };
+  const STATUSES = ["new","qualified","proposal","won","lost"];
   const cols = [
     { k: "name", label: "Name" },
     { k: "phone", label: "Phone" },
+    { k: "email", label: "Email", render: r => <span className="text-white/70 text-xs">{r.email || "—"}</span> },
     { k: "source", label: "Source" },
     { k: "interest", label: "Interest" },
-    { k: "value", label: "Value", render: r => `₹${(r.value/1000).toFixed(0)}k` },
-    { k: "status", label: "Status", render: r => <Badge className={`${r.status==="won"?"bg-green-500/20 text-green-300":r.status==="lost"?"bg-red-500/20 text-red-300":"bg-gold/20 text-gold"} border-0 capitalize`}>{r.status}</Badge> },
+    { k: "value", label: "Value", render: r => r.value ? `₹${(r.value/1000).toFixed(0)}k` : "—" },
+    { k: "status", label: "Status", render: r => (
+      <Select value={r.status} onValueChange={(v)=>updateStatus(r.id, v)}>
+        <SelectTrigger data-testid={`lead-status-${r.id}`} className="w-32 h-8 bg-[#151C33] border-white/10 capitalize text-xs"><SelectValue/></SelectTrigger>
+        <SelectContent className="bg-[#0B132B] border-white/10">{STATUSES.map(s => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}</SelectContent>
+      </Select>
+    )},
   ];
   return <DataTable rows={rows} columns={cols} title="Lead Management" testid="leads-table"/>;
 }
 
 function Customers() {
   const [rows, setRows] = useState([]);
-  useEffect(() => { api.get("/customers").then(r=>setRows(r.data)); }, []);
+  const [editing, setEditing] = useState(null);
+  const load = () => api.get("/customers").then(r=>setRows(r.data));
+  useEffect(() => { load(); }, []);
+  const save = async () => {
+    try {
+      await api.patch(`/customers/${editing.id}`, { name: editing.name, email: editing.email, phone: editing.phone });
+      toast.success("Customer updated"); setEditing(null); load();
+    } catch { toast.error("Update failed"); }
+  };
   const cols = [
     { k: "name", label: "Name" },
     { k: "email", label: "Email" },
     { k: "phone", label: "Phone" },
     { k: "created_at", label: "Joined", render: r => new Date(r.created_at).toLocaleDateString() },
+    { k: "actions", label: "", render: r => (
+      <Button data-testid={`edit-customer-${r.id}`} size="sm" variant="ghost" className="text-white/70" onClick={()=>setEditing({...r})}><Pencil className="w-3.5 h-3.5 mr-1"/>Edit</Button>
+    )},
   ];
-  return <DataTable rows={rows} columns={cols} title="Customer Database" testid="customers-table"/>;
+  return (
+    <>
+      <DataTable rows={rows} columns={cols} title="Customer Database" testid="customers-table"/>
+      <Dialog open={!!editing} onOpenChange={(v)=>!v && setEditing(null)}>
+        <DialogContent className="bg-[#0B132B] border-white/10">
+          <DialogHeader><DialogTitle className="font-serif text-2xl">Edit customer</DialogTitle></DialogHeader>
+          {editing && (
+            <div className="space-y-3">
+              <div><div className="label-cap mb-1">Name</div><Input data-testid="customer-edit-name" value={editing.name||""} onChange={(e)=>setEditing({...editing, name: e.target.value})} className="bg-[#151C33] border-white/5"/></div>
+              <div><div className="label-cap mb-1">Email</div><Input data-testid="customer-edit-email" value={editing.email||""} onChange={(e)=>setEditing({...editing, email: e.target.value})} className="bg-[#151C33] border-white/5"/></div>
+              <div><div className="label-cap mb-1">Phone</div><Input data-testid="customer-edit-phone" value={editing.phone||""} onChange={(e)=>setEditing({...editing, phone: e.target.value})} className="bg-[#151C33] border-white/5"/></div>
+            </div>
+          )}
+          <DialogFooter><Button data-testid="customer-edit-save" onClick={save} className="rounded-full bg-gold text-[#050A1F]">Save</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }
 
 function DevicesMonitor() {
@@ -219,30 +263,148 @@ function Tickets() {
 
 function Inventory() {
   const [rows, setRows] = useState([]);
-  useEffect(() => { api.get("/inventory").then(r=>setRows(r.data)); }, []);
+  const [editing, setEditing] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const empty = { sku: "", name: "", category: "", stock: 0, min_stock: 5, price: 0 };
+  const [draft, setDraft] = useState(empty);
+  const load = () => api.get("/inventory").then(r=>setRows(r.data));
+  useEffect(() => { load(); }, []);
+
+  const saveEdit = async () => {
+    try {
+      await api.patch(`/inventory/${editing.id}`, {
+        sku: editing.sku, name: editing.name, category: editing.category,
+        stock: editing.stock, min_stock: editing.min_stock, price: editing.price,
+      });
+      toast.success("Item updated"); setEditing(null); load();
+    } catch { toast.error("Update failed"); }
+  };
+  const saveNew = async () => {
+    if (!draft.name) { toast.error("Name required"); return; }
+    try { await api.post("/inventory", draft); toast.success("Item added"); setCreating(false); setDraft(empty); load(); }
+    catch { toast.error("Failed"); }
+  };
+
   const cols = [
     { k: "sku", label: "SKU", render: r => <span className="font-mono text-xs">{r.sku}</span> },
     { k: "name", label: "Product" },
     { k: "category", label: "Category" },
     { k: "stock", label: "Stock", render: r => <span className={r.stock < r.min_stock ? "text-red-400 font-medium" : ""}>{r.stock}</span> },
-    { k: "price", label: "Price", render: r => `₹${r.price.toLocaleString()}` },
+    { k: "price", label: "Price", render: r => `₹${(r.price||0).toLocaleString()}` },
     { k: "status", label: "Status", render: r => r.stock < r.min_stock ? <Badge className="bg-red-500/20 text-red-300 border-0">Low</Badge> : <Badge className="bg-green-500/20 text-green-300 border-0">OK</Badge> },
+    { k: "actions", label: "", render: r => <Button data-testid={`edit-inventory-${r.id}`} size="sm" variant="ghost" onClick={()=>setEditing({...r})}><Pencil className="w-3.5 h-3.5 mr-1"/>Edit</Button> },
   ];
-  return <DataTable rows={rows} columns={cols} title="Inventory" testid="inventory-table"/>;
+
+  const fields = (obj, set) => (
+    <div className="grid grid-cols-2 gap-3">
+      <div className="col-span-2"><div className="label-cap mb-1">Product Name</div><Input data-testid="inv-name" value={obj.name||""} onChange={(e)=>set({...obj, name: e.target.value})} className="bg-[#151C33] border-white/5"/></div>
+      <div><div className="label-cap mb-1">SKU</div><Input data-testid="inv-sku" value={obj.sku||""} onChange={(e)=>set({...obj, sku: e.target.value})} className="bg-[#151C33] border-white/5 font-mono" placeholder="auto-generated if empty"/></div>
+      <div><div className="label-cap mb-1">Category</div><Input data-testid="inv-category" value={obj.category||""} onChange={(e)=>set({...obj, category: e.target.value})} className="bg-[#151C33] border-white/5"/></div>
+      <div><div className="label-cap mb-1">Stock</div><Input data-testid="inv-stock" type="number" value={obj.stock} onChange={(e)=>set({...obj, stock: e.target.value})} className="bg-[#151C33] border-white/5"/></div>
+      <div><div className="label-cap mb-1">Min Stock</div><Input data-testid="inv-min" type="number" value={obj.min_stock} onChange={(e)=>set({...obj, min_stock: e.target.value})} className="bg-[#151C33] border-white/5"/></div>
+      <div className="col-span-2"><div className="label-cap mb-1">Price (₹)</div><Input data-testid="inv-price" type="number" value={obj.price} onChange={(e)=>set({...obj, price: e.target.value})} className="bg-[#151C33] border-white/5"/></div>
+    </div>
+  );
+
+  const action = <Button data-testid="inv-add-btn" onClick={()=>{setDraft(empty); setCreating(true);}} className="rounded-full bg-gold text-[#050A1F]"><Plus className="w-4 h-4 mr-1"/>Add Item</Button>;
+  return (
+    <>
+      <DataTable rows={rows} columns={cols} title="Inventory" testid="inventory-table" action={action}/>
+      <Dialog open={creating} onOpenChange={setCreating}>
+        <DialogContent className="bg-[#0B132B] border-white/10">
+          <DialogHeader><DialogTitle className="font-serif text-2xl">Add inventory item</DialogTitle></DialogHeader>
+          {fields(draft, setDraft)}
+          <DialogFooter><Button data-testid="inv-create-save" onClick={saveNew} className="rounded-full bg-gold text-[#050A1F]">Add</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!editing} onOpenChange={(v)=>!v && setEditing(null)}>
+        <DialogContent className="bg-[#0B132B] border-white/10">
+          <DialogHeader><DialogTitle className="font-serif text-2xl">Edit item</DialogTitle></DialogHeader>
+          {editing && fields(editing, setEditing)}
+          <DialogFooter><Button data-testid="inv-edit-save" onClick={saveEdit} className="rounded-full bg-gold text-[#050A1F]">Save</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }
 
 function Invoices() {
   const [rows, setRows] = useState([]);
-  useEffect(() => { api.get("/invoices").then(r=>setRows(r.data)); }, []);
+  const [customers, setCustomers] = useState([]);
+  const [editing, setEditing] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const empty = { customer_id: "", customer_name: "", description: "", amount: 0, gst_pct: 18, status: "unpaid" };
+  const [draft, setDraft] = useState(empty);
+  const load = () => api.get("/invoices").then(r=>setRows(r.data));
+  useEffect(() => { load(); api.get("/customers").then(r=>setCustomers(r.data)); }, []);
+
+  const onCustomerSelect = (id, target, set) => {
+    const c = customers.find(x => x.id === id);
+    set({...target, customer_id: id, customer_name: c?.name || ""});
+  };
+
+  const saveNew = async () => {
+    if (!draft.customer_id || !draft.amount) { toast.error("Customer & amount required"); return; }
+    try { await api.post("/invoices", { ...draft, amount: Number(draft.amount), gst_pct: Number(draft.gst_pct) }); toast.success("Invoice created"); setCreating(false); setDraft(empty); load(); }
+    catch { toast.error("Failed"); }
+  };
+  const saveEdit = async () => {
+    try { await api.patch(`/invoices/${editing.id}`, { customer_id: editing.customer_id, customer_name: editing.customer_name, description: editing.description, amount: Number(editing.amount), gst_pct: Number(editing.gst_pct), status: editing.status }); toast.success("Invoice updated"); setEditing(null); load(); }
+    catch { toast.error("Update failed"); }
+  };
+
   const cols = [
     { k: "number", label: "Invoice #", render: r => <span className="font-mono text-xs">{r.number}</span> },
     { k: "customer_name", label: "Customer" },
     { k: "description", label: "For" },
-    { k: "amount", label: "Amount", render: r => `₹${r.amount.toLocaleString()}` },
+    { k: "amount", label: "Amount", render: r => `₹${(r.amount||0).toLocaleString()}` },
     { k: "gst_pct", label: "GST", render: r => `${r.gst_pct}%` },
     { k: "status", label: "Status", render: r => <Badge className={`${r.status==="paid"?"bg-green-500/20 text-green-300":"bg-amber-500/20 text-amber-300"} border-0 capitalize`}>{r.status}</Badge> },
+    { k: "actions", label: "", render: r => <Button data-testid={`edit-invoice-${r.id}`} size="sm" variant="ghost" onClick={()=>setEditing({...r})}><Pencil className="w-3.5 h-3.5 mr-1"/>Edit</Button> },
   ];
-  return <DataTable rows={rows} columns={cols} title="Invoices" testid="invoices-table"/>;
+
+  const fields = (obj, set) => (
+    <div className="grid grid-cols-2 gap-3">
+      <div className="col-span-2">
+        <div className="label-cap mb-1">Customer</div>
+        <Select value={obj.customer_id || ""} onValueChange={(v)=>onCustomerSelect(v, obj, set)}>
+          <SelectTrigger data-testid="inv-customer" className="bg-[#151C33] border-white/5"><SelectValue placeholder="Select customer"/></SelectTrigger>
+          <SelectContent className="bg-[#0B132B] border-white/10">{customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name} · {c.phone}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>
+      <div className="col-span-2"><div className="label-cap mb-1">Description</div><Input data-testid="inv-desc" value={obj.description||""} onChange={(e)=>set({...obj, description: e.target.value})} className="bg-[#151C33] border-white/5"/></div>
+      <div><div className="label-cap mb-1">Amount (₹)</div><Input data-testid="inv-amount" type="number" value={obj.amount} onChange={(e)=>set({...obj, amount: e.target.value})} className="bg-[#151C33] border-white/5"/></div>
+      <div><div className="label-cap mb-1">GST %</div><Input data-testid="inv-gst" type="number" value={obj.gst_pct} onChange={(e)=>set({...obj, gst_pct: e.target.value})} className="bg-[#151C33] border-white/5"/></div>
+      <div className="col-span-2">
+        <div className="label-cap mb-1">Status</div>
+        <Select value={obj.status || "unpaid"} onValueChange={(v)=>set({...obj, status: v})}>
+          <SelectTrigger data-testid="inv-status" className="bg-[#151C33] border-white/5 capitalize"><SelectValue/></SelectTrigger>
+          <SelectContent className="bg-[#0B132B] border-white/10">{["unpaid","paid","cancelled"].map(s => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+
+  const action = <Button data-testid="inv-add-invoice" onClick={()=>{setDraft(empty); setCreating(true);}} className="rounded-full bg-gold text-[#050A1F]"><Plus className="w-4 h-4 mr-1"/>New Invoice</Button>;
+  return (
+    <>
+      <DataTable rows={rows} columns={cols} title="Invoices" testid="invoices-table" action={action}/>
+      <Dialog open={creating} onOpenChange={setCreating}>
+        <DialogContent className="bg-[#0B132B] border-white/10">
+          <DialogHeader><DialogTitle className="font-serif text-2xl">Create invoice</DialogTitle></DialogHeader>
+          {fields(draft, setDraft)}
+          <DialogFooter><Button data-testid="invoice-create-save" onClick={saveNew} className="rounded-full bg-gold text-[#050A1F]">Create</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!editing} onOpenChange={(v)=>!v && setEditing(null)}>
+        <DialogContent className="bg-[#0B132B] border-white/10">
+          <DialogHeader><DialogTitle className="font-serif text-2xl">Edit invoice</DialogTitle></DialogHeader>
+          {editing && fields(editing, setEditing)}
+          <DialogFooter><Button data-testid="invoice-edit-save" onClick={saveEdit} className="rounded-full bg-gold text-[#050A1F]">Save</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }
 
 function Support() {
