@@ -62,7 +62,7 @@ export default function Landing() {
               </a>
             </div>
             <div className="grid grid-cols-3 gap-6 pt-8 max-w-md">
-              <Stat n="12k+" l="Homes" />
+              <Stat n="2Yrs" l="Warranty" />
               <Stat n="98%" l="Uptime" />
               <Stat n="24/7" l="Support" />
             </div>
