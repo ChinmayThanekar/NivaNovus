@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { Routes, Route, Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -79,8 +79,8 @@ function JobDetail() {
   const [signature, setSignature] = useState("");
   const [report, setReport] = useState("");
 
-  const load = useCallback(() => api.get(`/jobs/${id}`).then(r=>setJob(r.data)), [id]);
-  useEffect(() => { load(); }, [load]);
+  const load = () => api.get(`/jobs/${id}`).then(r=>setJob(r.data));
+  useEffect(() => { load(); }, [id]);
 
   if (!job) return <div className="px-5 pt-6 text-white/50">Loading...</div>;
 
