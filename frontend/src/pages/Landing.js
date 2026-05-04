@@ -122,16 +122,6 @@ export default function Landing() {
           </div>
           <EnquiryForm />
         </div>
-        <div className="surface p-10 md:p-14 text-center mt-10">
-          <div className="label-cap text-gold">Investor demo</div>
-          <h2 className="font-serif text-4xl md:text-5xl mt-3 mb-6">Three apps. One platform.</h2>
-          <p className="text-white/60 max-w-2xl mx-auto mb-8">Customer mobile-first PWA, technician installer panel, and an enterprise-grade admin CRM — all live, all wired up.</p>
-          <Link to="/login">
-            <Button data-testid="cta-bottom" size="lg" className="rounded-full bg-gold hover:bg-[#F3E5AB] text-[#050A1F] font-semibold px-8 h-12">
-              Try Live Demo <ArrowRight className="ml-2 w-4 h-4" />
-            </Button>
-          </Link>
-        </div>
       </section>
 
       <footer className="border-t border-white/5 py-10 px-6 md:px-10 max-w-7xl mx-auto text-white/40 text-sm flex flex-col md:flex-row justify-between gap-4">
@@ -203,7 +193,7 @@ function EnquiryForm() {
       </div>
       <div>
         <Label className="label-cap">Tell us about your home</Label>
-        <Textarea data-testid="enquiry-message" value={form.message} onChange={set("message")} placeholder="3BHK in Mumbai — interested in lighting, AC & security..." className="mt-2 bg-[#151C33] border-white/5 rounded-xl min-h-[120px]"/>
+        <Textarea data-testid="enquiry-message" value={form.message} onChange={set("message")} placeholder="3BHK in Mumbai — interested in lighting, AC & security..." className="mt-2 bg-[#151C33] border-white/5 rounded-xl"/>
       </div>
       <Button data-testid="enquiry-submit" type="submit" disabled={busy} className="w-full rounded-full bg-gold hover:bg-[#F3E5AB] text-[#050A1F] font-semibold h-12">
         {busy ? "Sending..." : "Submit enquiry"} <ArrowRight className="ml-2 w-4 h-4"/>
