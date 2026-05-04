@@ -40,7 +40,7 @@ export default function Landing() {
       <section className="pt-40 pb-24 px-6 md:px-10 max-w-7xl mx-auto">
         <div className="grid lg:grid-cols-12 gap-10 items-center">
           <div className="lg:col-span-7 space-y-8 fade-up">
-            <div className="label-cap text-gold">Premium Smart Home OS</div>
+            <div className="label-cap text-gold">Premium Smart Home </div>
             <h1 className="font-serif text-5xl sm:text-6xl lg:text-7xl leading-[1.05] tracking-tight">
               Your home, <em className="text-gold">curated</em><br />
               by intelligence.
@@ -115,9 +115,9 @@ export default function Landing() {
               <p className="text-white/60 max-w-md mb-10">Drop us a line. Our concierge team will reach out within 24 hours with a tailored consultation.</p>
             </div>
             <div className="space-y-4 text-white/70 text-sm">
-              <div className="flex items-center gap-3"><Phone className="w-4 h-4 text-gold"/>+91 99999 00000</div>
+              <div className="flex items-center gap-3"><Phone className="w-4 h-4 text-gold"/>+91 9359156648</div>
               <div className="flex items-center gap-3"><Mail className="w-4 h-4 text-gold"/>concierge@nivanovus.com</div>
-              <div className="flex items-center gap-3"><MapPin className="w-4 h-4 text-gold"/>BKC, Mumbai · Bengaluru · Delhi NCR</div>
+              <div className="flex items-center gap-3"><MapPin className="w-4 h-4 text-gold"/>Nagpur · Pune </div>
             </div>
           </div>
           <EnquiryForm />
@@ -126,7 +126,7 @@ export default function Landing() {
 
       <footer className="border-t border-white/5 py-10 px-6 md:px-10 max-w-7xl mx-auto text-white/40 text-sm flex flex-col md:flex-row justify-between gap-4">
         <div>© 2026 Niva Novus. All rights reserved.</div>
-        <div className="flex gap-6"><span>Privacy</span><span>Terms</span><span>GST 27AAACN1234N1Z5</span></div>
+        <div className="flex gap-6"><span>Privacy</span><span>Terms</span><span> </span></div>
       </footer>
     </div>
   );
