@@ -95,7 +95,7 @@ function CustomerLogin() {
           {busy ? "Verifying..." : "Verify & Sign In"} <ArrowRight className="ml-2 w-4 h-4" />
         </Button>
       )}
-      <div className="text-center text-xs text-white/40">Demo: phone <span className="text-gold">+919999900001</span> · OTP <span className="text-gold">123456</span></div>
+      <div className="text-center text-xs text-white/40">For New Login<span className="text-gold"></span> · Contact your advisor<span className="text-gold"></span></div>
     </div>
   );
 }
