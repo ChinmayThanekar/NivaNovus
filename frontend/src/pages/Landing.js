@@ -116,7 +116,7 @@ export default function Landing() {
             </div>
             <div className="space-y-4 text-white/70 text-sm">
               <div className="flex items-center gap-3"><Phone className="w-4 h-4 text-gold"/>+91 9359156648</div>
-              <div className="flex items-center gap-3"><Mail className="w-4 h-4 text-gold"/>concierge@nivanovus.com</div>
+              <div className="flex items-center gap-3"><Mail className="w-4 h-4 text-gold"/>chinmaythanekar48@gmail.com</div>
               <div className="flex items-center gap-3"><MapPin className="w-4 h-4 text-gold"/>Nagpur · Pune </div>
             </div>
           </div>
